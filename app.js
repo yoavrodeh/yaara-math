@@ -1,8 +1,9 @@
 'use strict';
 
-const VERSION = 'v5';
+const VERSION = 'v6';
 const QUESTIONS_PER_SESSION = 10;
-const TIME_CHOICES = [5, 10, 15, 20];
+const TIME_CHOICES = [5, 10, 15, 20, 30];
+const IDLE_BEEP_MS = 60 * 1000;
 const MAX_ANSWER_DIGITS = 6;
 const STORE_KEY = 'yaara-math';
 
@@ -221,6 +222,9 @@ const S = {
   level: 0,
   session: null,
   lastSummary: null,
+  gameRounds: [],
+  hiddenMs: 0,
+  hiddenSince: 0,
 };
 
 const app = document.getElementById('app');
@@ -351,6 +355,7 @@ const screens = {
         <p class="sub">You answered ${S.gameAnswered} question${S.gameAnswered === 1 ? '' : 's'}</p>
         <div class="big-score">${fmt(S.gamePoints)} points</div>
         <p class="small">Points today: ${fmt(todayPoints())}</p>
+        ${roundsHTML()}
         <div class="btn-row">
           <button class="btn" data-act="go" data-v="start">Play again</button>
         </div>
@@ -388,7 +393,10 @@ function startSession(op, level) {
   }
   S.op = op;
   S.level = level;
-  S.session = { questions, index: 0, tries: 0, input: '', results: [], score: 0, resolved: false, reveal: false };
+  S.session = {
+    questions, index: 0, tries: 0, input: '', results: [], score: 0, resolved: false, reveal: false,
+    startedAt: Date.now(), hiddenAtStart: S.hiddenMs,
+  };
   freshAnswer(S.session);
   go('question');
 }
@@ -841,14 +849,41 @@ function finishSession(complete) {
   if (newBest) {
     store.best[key] = s.score;
   }
-  store.sessions.push({ date: todayKey(), op: S.op, level: S.level + 1, score: s.score, answered: s.results.length });
+  recordRound(s, complete);
+  S.lastSummary = { score: s.score, results: s.results, newBest, op: S.op, level: S.level };
+  S.session = null;
+  go(complete ? 'summary' : 'timeup');
+}
+
+/** Adds a round (finished, stopped, or cut off by the timer) to this game's list and to the saved history. */
+function recordRound(s, complete) {
+  const secs = Math.round((Date.now() - s.startedAt - (S.hiddenMs - s.hiddenAtStart)) / 1000);
+  const round = { op: S.op, level: S.level, score: s.score, answered: s.results.length, secs, complete };
+  S.gameRounds.push(round);
+  store.sessions.push({
+    date: todayKey(), op: S.op, level: levelName(S.op, S.level), score: s.score,
+    answered: s.results.length, secs, complete,
+  });
   if (store.sessions.length > 1000) {
     store.sessions.splice(0, store.sessions.length - 1000);
   }
   saveStore();
-  S.lastSummary = { score: s.score, results: s.results, newBest, op: S.op, level: S.level };
-  S.session = null;
-  go(complete ? 'summary' : 'timeup');
+}
+
+const mmss = secs => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+
+function roundsHTML() {
+  if (S.gameRounds.length === 0) {
+    return '';
+  }
+  const rows = S.gameRounds.map((r, i) => `
+    <div class="round">
+      <span class="rnum">${i + 1}</span>
+      <span class="rname">${OPS[r.op].name} · ${levelName(r.op, r.level)}${r.complete ? '' : ' <span class="rtag">unfinished</span>'}</span>
+      <span class="rscore">${fmt(r.score)} / ${r.complete ? QUESTIONS_PER_SESSION : r.answered}</span>
+      <span class="rtime">${mmss(r.secs)}</span>
+    </div>`).join('');
+  return `<div class="rounds">${rows}</div>`;
 }
 
 // ---------- timer ----------
@@ -858,6 +893,7 @@ function timeLeft() {
 }
 
 function tick() {
+  checkIdle();
   if (S.screen === 'start') {
     return;
   }
@@ -876,8 +912,68 @@ function tick() {
 }
 setInterval(tick, 250);
 
+// ---------- idle beeping ----------
+// A minute with no tap or key during a game starts a short beep every second, until she touches the screen.
+// Browsers only allow sound after a tap, so the sound is switched on by her first tap.
+
+let lastActive = Date.now();
+let lastBeep = 0;
+let audio = null;
+
+function wake() {
+  lastActive = Date.now();
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === 'suspended') {
+      audio.resume();
+    }
+  } catch {
+    audio = null;
+  }
+}
+document.addEventListener('pointerdown', wake, true);
+document.addEventListener('keydown', wake, true);
+
+function beep() {
+  if (!audio) {
+    return;
+  }
+  const t = audio.currentTime;
+  const osc = audio.createOscillator();
+  const gain = audio.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = 880;
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+  osc.connect(gain).connect(audio.destination);
+  osc.start(t);
+  osc.stop(t + 0.3);
+}
+
+const PLAYING_SCREENS = ['ops', 'levels', 'question', 'summary'];
+
+function checkIdle() {
+  const now = Date.now();
+  const idle = PLAYING_SCREENS.includes(S.screen) && !document.hidden && now - lastActive >= IDLE_BEEP_MS;
+  document.body.classList.toggle('idle', idle);
+  if (idle && now - lastBeep >= 1000) {
+    lastBeep = now;
+    beep();
+  }
+}
+
 // Pause the clock while the app is in the background.
 document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    S.hiddenSince = Date.now();
+  } else {
+    if (S.hiddenSince) {
+      S.hiddenMs += Date.now() - S.hiddenSince;
+      S.hiddenSince = 0;
+    }
+    lastActive = Date.now();
+  }
   if (S.screen === 'start' || S.screen === 'timeup' || S.timeUp) {
     return;
   }
@@ -904,8 +1000,9 @@ function press(act, v) {
       S.timeUp = false;
       S.gamePoints = 0;
       S.gameAnswered = 0;
-      tick();
+      S.gameRounds = [];
       go('ops');
+      tick();
       break;
     case 'go':
       go(v);
@@ -918,6 +1015,9 @@ function press(act, v) {
       startSession(S.op, Number(v));
       break;
     case 'quit':
+      if (s && s.results.length > 0) {
+        recordRound(s, false);
+      }
       S.session = null;
       go('levels');
       break;
