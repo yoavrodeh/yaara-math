@@ -1,6 +1,6 @@
 'use strict';
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const QUESTIONS_PER_SESSION = 10;
 const TIME_CHOICES = [5, 10, 15, 20];
 const MAX_ANSWER_DIGITS = 6;
@@ -21,6 +21,30 @@ const div = (divisor, quotient) => ({ a: divisor * quotient, b: divisor, sym: '�
 // Digit counts for the "mixed" levels: [longer, shorter].
 const MIXED_DIGITS = [[4, 1], [4, 2], [4, 3], [3, 1], [3, 2]];
 
+/** True if subtracting b from a needs at least one borrow. */
+function needsBorrow(a, b) {
+  for (; b > 0; a = Math.floor(a / 10), b = Math.floor(b / 10)) {
+    if (a % 10 < b % 10) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Long subtraction, written in columns: 2-digit numbers first, then 3, then 4. Always needs a borrow. */
+function longSub(index) {
+  const topDigits = index < 3 ? 2 : index < 7 ? 3 : 4;
+  for (;;) {
+    const a = nDigits(topDigits);
+    const b = nDigits(rand(2, topDigits));
+    if (b < a && needsBorrow(a, b)) {
+      return { ...sub(a, b), long: true };
+    }
+  }
+}
+
+const stackedSample = (a, b) => `<span class="mini"><span>${a}</span><span class="mini-b">− ${b}</span></span>`;
+
 const OPS = {
   add: {
     name: 'Addition', sym: '+',
@@ -38,6 +62,7 @@ const OPS = {
       { sample: '74 − 38', make: () => sub(nDigits(2), nDigits(2)) },
       { sample: '612 − 347', make: () => sub(nDigits(3), nDigits(3)) },
       { sample: '3005 − 48', make: () => { const [x, y] = pick(MIXED_DIGITS); return sub(nDigits(x), nDigits(y)); } },
+      { title: 'Long subtraction', sample: stackedSample(52, 38), make: longSub },
     ],
   },
   mul: {
@@ -60,7 +85,8 @@ const OPS = {
   },
 };
 
-const LEVEL_ICON_COLORS = ['var(--mustard)', 'var(--orange)', 'var(--red)', 'var(--brown)'];
+const LEVEL_ICON_COLORS = ['var(--mustard)', 'var(--orange)', 'var(--red)', 'var(--brown)', 'var(--olive)'];
+const levelName = (op, i) => OPS[op].levels[i].title || `Level ${i + 1}`;
 
 // ---------- saved progress ----------
 
@@ -162,7 +188,7 @@ const screens = {
       return `
         <button class="level" data-act="level" data-v="${i}">
           ${icon('leaf', '', `color:${LEVEL_ICON_COLORS[i]}`)}
-          <span>Level ${i + 1}</span>
+          <span>${levelName(S.op, i)}</span>
           <span class="ex">${lv.sample}</span>
           <span class="best">${best !== undefined ? `best ${fmt(best)}` : ''}</span>
         </button>`;
@@ -188,7 +214,7 @@ const screens = {
         <div class="bar"><div id="qbar"></div></div>
         <div class="qbody">
           <div class="qleft">
-            <div class="problem">${q.a} ${q.sym} ${q.b} = <span id="answer" class="answer"></span></div>
+            ${q.long ? longProblemHTML(q) : `<div class="problem">${q.a} ${q.sym} ${q.b} = <span id="answer" class="answer"></span></div>`}
             <div id="feedback" class="feedback"></div>
           </div>
           <div class="pad">
@@ -220,7 +246,7 @@ const screens = {
     }
     return `
       <div class="screen">
-        <h2>${OPS[op].name} · Level ${level + 1}</h2>
+        <h2>${OPS[op].name} · ${levelName(op, level)}</h2>
         <div class="big-score">${fmt(score)} / ${QUESTIONS_PER_SESSION}</div>
         <p class="sub" style="margin:6px 0 0">${msg}</p>
         ${newBest ? '<div class="badge">New best score!</div>' : ''}
@@ -277,7 +303,7 @@ function startSession(op, level) {
     let q;
     let tries = 0;
     do {
-      q = OPS[op].levels[level].make();
+      q = OPS[op].levels[level].make(questions.length);
       tries++;
     } while (seen.has(`${q.a}${q.sym}${q.b}`) && tries < 50);
     seen.add(`${q.a}${q.sym}${q.b}`);
@@ -286,7 +312,103 @@ function startSession(op, level) {
   S.op = op;
   S.level = level;
   S.session = { questions, index: 0, tries: 0, input: '', results: [], score: 0, resolved: false, reveal: false };
+  freshAnswer(S.session);
   go('question');
+}
+
+// ---------- long (column) questions ----------
+// The answer is a row of boxes, one per column of the top number, filled right to left.
+// `borrow[i]` means column i borrowed 10 from column i - 1.
+
+function freshAnswer(s) {
+  const q = s.questions[s.index];
+  s.input = '';
+  s.cells = null;
+  s.borrow = null;
+  if (q.long) {
+    const n = String(q.a).length;
+    s.cells = Array(n).fill('');
+    s.cursor = n - 1;
+    s.borrow = Array(n).fill(false);
+  }
+}
+
+/** Clears the typed answer for a second try; borrow marks stay. */
+function clearDigits(s) {
+  s.input = '';
+  if (s.cells) {
+    s.cells.fill('');
+    s.cursor = s.cells.length - 1;
+  }
+}
+
+/** The number in the boxes, or null if they are empty or have a gap. */
+function longEntry(s) {
+  const filled = s.cells.map(c => c !== '');
+  const first = filled.indexOf(true);
+  if (first === -1 || filled.slice(first).includes(false)) {
+    return null;
+  }
+  return Number(s.cells.slice(first).join(''));
+}
+
+/** What the top digit of column i is worth after borrowing. */
+function topValue(s, i) {
+  const d = Number(String(s.questions[s.index].a)[i]);
+  const lent = i + 1 < s.borrow.length && s.borrow[i + 1];
+  return d + (s.borrow[i] ? 10 : 0) - (lent ? 1 : 0);
+}
+
+function toggleBorrow(s, i) {
+  if (i === 0) {
+    return;
+  }
+  if (s.borrow[i]) {
+    s.borrow[i] = false;
+    return;
+  }
+  s.borrow[i] = true;
+  // Borrowing from a 0 means that column has to borrow too.
+  for (let j = i - 1; j > 0 && topValue(s, j) < 0; j--) {
+    s.borrow[j] = true;
+  }
+}
+
+function longProblemHTML(q) {
+  const top = String(q.a);
+  const n = top.length;
+  const bottom = String(q.b).padStart(n, ' ');
+  const cols = [...Array(n).keys()];
+  return `
+    <div id="longgrid" class="long" style="--n:${n + 1}">
+      <div></div>${cols.map(i => `<div class="carry" id="carry${i}"></div>`).join('')}
+      <div></div>${cols.map(i => `<button class="topd" data-act="borrow" data-v="${i}" id="top${i}">${top[i]}</button>`).join('')}
+      <div class="sign">−</div>${cols.map(i => `<div>${bottom[i].trim()}</div>`).join('')}
+      <div class="rule"></div>
+      <div></div>${cols.map(i => `<button class="box" data-act="cell" data-v="${i}" id="cell${i}"></button>`).join('')}
+    </div>
+    <p class="hint">Tap a top digit to borrow 10 for it</p>`;
+}
+
+function updateLongUI(s, q) {
+  const n = s.cells.length;
+  const shown = s.reveal ? String(q.answer).padStart(n, ' ').split('').map(c => c.trim()) : s.cells;
+  for (let i = 0; i < n; i++) {
+    const cell = document.getElementById(`cell${i}`);
+    cell.textContent = shown[i];
+    let cls = 'box';
+    if (s.reveal) {
+      cls += ' reveal';
+    } else if (s.resolved) {
+      cls += ' right';
+    } else if (i === s.cursor) {
+      cls += ' cur';
+    }
+    cell.className = cls;
+    const changed = s.borrow[i] || (i + 1 < n && s.borrow[i + 1]);
+    document.getElementById(`top${i}`).classList.toggle('crossed', changed);
+    document.getElementById(`carry${i}`).textContent = changed ? topValue(s, i) : '';
+  }
 }
 
 function updateQuestionUI(feedback) {
@@ -295,14 +417,18 @@ function updateQuestionUI(feedback) {
   document.getElementById('qscore').textContent = fmt(s.score);
   document.getElementById('qbar').style.width = `${(s.results.length / QUESTIONS_PER_SESSION) * 100}%`;
 
-  const ans = document.getElementById('answer');
   const q = s.questions[s.index];
-  if (s.reveal) {
-    ans.textContent = q.answer;
-    ans.className = 'answer reveal';
+  if (q.long) {
+    updateLongUI(s, q);
   } else {
-    ans.textContent = s.input || '?';
-    ans.className = `answer${s.input ? '' : ' empty'}${s.resolved ? ' right' : ''}`;
+    const ans = document.getElementById('answer');
+    if (s.reveal) {
+      ans.textContent = q.answer;
+      ans.className = 'answer reveal';
+    } else {
+      ans.textContent = s.input || '?';
+      ans.className = `answer${s.input ? '' : ' empty'}${s.resolved ? ' right' : ''}`;
+    }
   }
 
   const goBtn = document.getElementById('go');
@@ -320,7 +446,7 @@ function updateQuestionUI(feedback) {
 }
 
 function shake() {
-  const ans = document.getElementById('answer');
+  const ans = document.getElementById('answer') || document.getElementById('longgrid');
   ans.classList.remove('shake');
   void ans.offsetWidth;
   ans.classList.add('shake');
@@ -336,19 +462,20 @@ function check() {
     }
     return;
   }
-  if (!s.input) {
+  const q = s.questions[s.index];
+  const entry = q.long ? longEntry(s) : (s.input ? Number(s.input) : null);
+  if (entry === null) {
     shake();
     return;
   }
-  const q = s.questions[s.index];
-  if (Number(s.input) === q.answer) {
+  if (entry === q.answer) {
     const pts = s.tries === 0 ? 1 : 0.5;
     resolve(pts, s.tries === 0 ? 'first' : 'second');
     updateQuestionUI({ good: true, html: `${icon('flower', '', 'color:var(--mustard)')} ${pick(PRAISE)} +${fmt(pts)}` });
     advanceTimeout = setTimeout(nextQuestion, 1200);
   } else if (s.tries === 0) {
     s.tries = 1;
-    s.input = '';
+    clearDigits(s);
     updateQuestionUI({ good: false, html: 'Almost! Try once more' });
     shake();
   } else {
@@ -381,7 +508,7 @@ function nextQuestion() {
   }
   s.index += 1;
   s.tries = 0;
-  s.input = '';
+  freshAnswer(s);
   s.resolved = false;
   s.reveal = false;
   go('question');
@@ -475,14 +602,42 @@ function press(act, v) {
       go('levels');
       break;
     case 'digit':
-      if (s && !s.resolved && s.input.length < MAX_ANSWER_DIGITS) {
+      if (!s || s.resolved) {
+        break;
+      }
+      if (s.cells) {
+        // Fill the current box, then move one box to the left.
+        s.cells[s.cursor] = v;
+        s.cursor = Math.max(0, s.cursor - 1);
+      } else if (s.input.length < MAX_ANSWER_DIGITS) {
         s.input = s.input === '0' ? v : s.input + v;
+      }
+      updateQuestionUI();
+      break;
+    case 'del':
+      if (!s || s.resolved) {
+        break;
+      }
+      if (!s.cells) {
+        s.input = s.input.slice(0, -1);
+      } else if (s.cells[s.cursor] !== '') {
+        s.cells[s.cursor] = '';
+      } else if (s.cursor < s.cells.length - 1) {
+        // Undo the last digit: step back right and clear it.
+        s.cursor += 1;
+        s.cells[s.cursor] = '';
+      }
+      updateQuestionUI();
+      break;
+    case 'cell':
+      if (s && s.cells && !s.resolved) {
+        s.cursor = Number(v);
         updateQuestionUI();
       }
       break;
-    case 'del':
-      if (s && !s.resolved) {
-        s.input = s.input.slice(0, -1);
+    case 'borrow':
+      if (s && s.borrow && !s.resolved) {
+        toggleBorrow(s, Number(v));
         updateQuestionUI();
       }
       break;

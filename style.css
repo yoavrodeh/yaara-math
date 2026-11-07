@@ -60,7 +60,7 @@ button {
 
 .screen {
   width: 100%;
-  max-width: 760px;
+  max-width: 900px;
   text-align: center;
   animation: fadeIn .25s ease-out;
 }
@@ -140,7 +140,7 @@ h2 {
 }
 
 /* ---------- operation cards ---------- */
-.ops { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.ops { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; max-width: 760px; margin: 0 auto; }
 .op {
   border-radius: 24px;
   padding: 22px 10px;
@@ -221,6 +221,44 @@ h2 {
 .key.del { background: var(--tan); font-size: 30px; }
 .key.go { background: var(--olive); color: var(--cream); font-size: 30px; }
 .key.go.next { background: var(--orange); }
+
+/* ---------- long subtraction ---------- */
+.long {
+  display: inline-grid;
+  grid-template-columns: repeat(var(--n), 1.15em);
+  justify-items: center;
+  align-items: end;
+  font-size: clamp(44px, 7vw, 64px);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.long .carry { font-size: .42em; height: 1.4em; line-height: 1.4em; color: var(--red); }
+.long .topd { font-size: 1em; line-height: 1.2; width: 1.1em; border-radius: 12px; }
+.long .topd:active { background: var(--sand); }
+.long .topd.crossed {
+  color: var(--brown);
+  text-decoration: line-through;
+  text-decoration-color: var(--red);
+  text-decoration-thickness: 5px;
+}
+.long .sign { color: var(--orange); }
+.long .rule { grid-column: 1 / -1; justify-self: stretch; height: 6px; background: var(--ink); border-radius: 3px; margin: 6px 0 10px; }
+.long .box {
+  font-size: 1em;
+  width: 1.05em;
+  height: 1.3em;
+  border: 3px dashed var(--tan);
+  border-radius: 14px;
+  background: #FFF9EE;
+  line-height: 1.2;
+}
+.long .box.cur { border: 4px solid var(--orange); background: #fff; }
+.long .box.right, .long .box.reveal { color: var(--green); border: 3px solid var(--green); }
+.hint { font-size: 17px; color: var(--brown); margin: 6px 0 0; }
+
+.mini { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.1; font-size: 24px; }
+.mini-b { border-bottom: 2px solid var(--brown); padding-bottom: 2px; }
 
 /* ---------- summary / time up ---------- */
 .big-score { font-size: clamp(56px, 10vw, 96px); font-weight: 600; color: var(--orange); line-height: 1.1; }
