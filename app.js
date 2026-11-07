@@ -1,6 +1,6 @@
 'use strict';
 
-const VERSION = 'v2';
+const VERSION = 'v3';
 const QUESTIONS_PER_SESSION = 10;
 const TIME_CHOICES = [5, 10, 15, 20];
 const MAX_ANSWER_DIGITS = 6;
@@ -85,7 +85,8 @@ const OPS = {
   },
 };
 
-const LEVEL_ICON_COLORS = ['var(--mustard)', 'var(--orange)', 'var(--red)', 'var(--brown)', 'var(--olive)'];
+// Level 1 is the palest strawberry, later levels get riper.
+const LEVEL_ICON_COLORS = ['#F5A3B7', '#F0849E', '#EA6587', '#D94F72', 'var(--lavender)'];
 const levelName = (op, i) => OPS[op].levels[i].title || `Level ${i + 1}`;
 
 // ---------- saved progress ----------
@@ -177,7 +178,7 @@ const screens = {
       <div class="screen">
         <h2>What shall we practice?</h2>
         <div class="ops">${cards}</div>
-        <p class="small" style="margin-top:22px">${icon('flower', '', 'width:22px;height:22px;vertical-align:-4px;color:var(--mustard)')} Points this game: ${fmt(S.gamePoints)}</p>
+        <p class="small" style="margin-top:22px">${icon('berry', '', 'width:24px;height:24px;vertical-align:-5px;color:var(--berry)')} Points this game: ${fmt(S.gamePoints)}</p>
       </div>`;
   },
 
@@ -187,7 +188,7 @@ const screens = {
       const best = store.best[`${S.op}-${i}`];
       return `
         <button class="level" data-act="level" data-v="${i}">
-          ${icon('leaf', '', `color:${LEVEL_ICON_COLORS[i]}`)}
+          ${icon('berry', '', `color:${LEVEL_ICON_COLORS[i]}`)}
           <span>${levelName(S.op, i)}</span>
           <span class="ex">${lv.sample}</span>
           <span class="best">${best !== undefined ? `best ${fmt(best)}` : ''}</span>
@@ -209,7 +210,7 @@ const screens = {
       <div class="screen">
         <div class="qtop">
           <span id="qnum"></span>
-          <span class="score">${icon('flower')}<span id="qscore"></span></span>
+          <span class="score">${icon('berry')}<span id="qscore"></span></span>
         </div>
         <div class="bar"><div id="qbar"></div></div>
         <div class="qbody">
@@ -231,7 +232,7 @@ const screens = {
     const { score, results, newBest, op, level } = S.lastSummary;
     const leaves = Array.from({ length: QUESTIONS_PER_SESSION }, (_, i) => {
       const r = results[i] || 'none';
-      const id = r === 'first' ? 'maple' : 'leaf';
+      const id = r === 'first' ? 'berry' : r === 'second' ? 'flower' : 'leaf';
       return icon(id, r);
     }).join('');
     let msg;
@@ -252,9 +253,9 @@ const screens = {
         ${newBest ? '<div class="badge">New best score!</div>' : ''}
         <div class="leaves">${leaves}</div>
         <div class="legend">
-          <span>${icon('maple', '', 'color:var(--mustard)')} first try</span>
-          <span>${icon('leaf', '', 'color:var(--orange)')} second try</span>
-          <span>${icon('leaf', '', 'color:var(--brown);opacity:.45')} missed</span>
+          <span>${icon('berry', '', 'color:var(--berry)')} first try</span>
+          <span>${icon('flower', '', 'color:var(--pink)')} second try</span>
+          <span>${icon('leaf', '', 'color:var(--ink-soft);opacity:.4')} missed</span>
         </div>
         <div class="btn-row">
           <button class="btn" data-act="level" data-v="${level}">Play again</button>
@@ -268,7 +269,7 @@ const screens = {
     return `
       <div class="screen">
         <div class="bloom">
-          ${icon('flower', '', 'color:var(--orange)')}${icon('maple', '', 'color:var(--red)')}${icon('flower', '', 'color:var(--mustard)')}
+          ${icon('flower', '', 'color:var(--pink)')}${icon('berry', '', 'color:var(--berry)')}${icon('flower', '', 'color:var(--lavender)')}
         </div>
         <h1>Time's up!</h1>
         <p class="sub">You answered ${S.gameAnswered} question${S.gameAnswered === 1 ? '' : 's'}</p>
@@ -471,7 +472,7 @@ function check() {
   if (entry === q.answer) {
     const pts = s.tries === 0 ? 1 : 0.5;
     resolve(pts, s.tries === 0 ? 'first' : 'second');
-    updateQuestionUI({ good: true, html: `${icon('flower', '', 'color:var(--mustard)')} ${pick(PRAISE)} +${fmt(pts)}` });
+    updateQuestionUI({ good: true, html: `${icon('berry', '', 'color:var(--berry)')} ${pick(PRAISE)} +${fmt(pts)}` });
     advanceTimeout = setTimeout(nextQuestion, 1200);
   } else if (s.tries === 0) {
     s.tries = 1;
