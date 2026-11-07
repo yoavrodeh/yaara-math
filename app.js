@@ -1,6 +1,6 @@
 'use strict';
 
-const VERSION = 'v4';
+const VERSION = 'v5';
 const QUESTIONS_PER_SESSION = 10;
 const TIME_CHOICES = [5, 10, 15, 20];
 const MAX_ANSWER_DIGITS = 6;
@@ -94,6 +94,26 @@ function longDiv(index) {
   return { ...q, sheet: divisionSheet(q.a, divisor) };
 }
 
+const noZero = v => !String(v).includes('0');
+
+/** Two-digit divisor: 1-digit answers first, then 2-digit, then 3-digit; no 0 digits in the answer. */
+function longDiv2(index) {
+  const digits = index < 7 ? 3 : 4;
+  for (;;) {
+    const divisor = rand(11, index < 7 ? 29 : 39);
+    let quotient = rand(111, 999);
+    if (index < 3) {
+      quotient = rand(2, 9);
+    } else if (index < 7) {
+      quotient = rand(11, 99);
+    }
+    if (String(divisor * quotient).length === digits && noZero(quotient)) {
+      const q = div(divisor, quotient);
+      return { ...q, sheet: longDivisionSheet(q.a, divisor) };
+    }
+  }
+}
+
 const stackedSample = (a, sym, b) => `<span class="mini"><span>${a}</span><span class="mini-b">${sym} ${b}</span></span>`;
 const divisionSample = (a, b) => `<span class="mini-div"><span>${b}</span><span class="mini-dd">${a}</span></span>`;
 
@@ -136,12 +156,13 @@ const OPS = {
       { sample: '713 ÷ 23', make: () => div(rand(10, 39), rand(10, 39)) },
       { sample: '2752 ÷ 43', make: () => div(nDigits(2), nDigits(2)) },
       { title: 'Long division', sample: divisionSample(96, 4), make: longDiv },
+      { title: 'Long division 2', sample: divisionSample(736, 23), make: longDiv2 },
     ],
   },
 };
 
 // Level 1 is the palest strawberry, later levels get riper.
-const LEVEL_ICON_COLORS = ['#F5A3B7', '#F0849E', '#EA6587', '#D94F72', 'var(--lavender)'];
+const LEVEL_ICON_COLORS = ['#F5A3B7', '#F0849E', '#EA6587', '#D94F72', 'var(--lavender)', '#A792E0'];
 const levelName = (op, i) => OPS[op].levels[i].title || `Level ${i + 1}`;
 
 // ---------- saved progress ----------
@@ -440,7 +461,97 @@ function divisionSheet(dividend, divisor) {
   };
 }
 
+/**
+ * Long division by a two-digit divisor, with all the working: under the number, each step's product,
+ * a line, and what is left with the next digit brought down. The cursor follows the steps in order:
+ * answer digit, product (right to left), what is left (left to right), next answer digit.
+ */
+function longDivisionSheet(dividend, divisor) {
+  const D = String(dividend);
+  const n = D.length;
+  /** A row of boxes holding value, ending at column `to`. */
+  const place = (value, to, ltr = false) => {
+    const t = String(value);
+    const from = to - t.length + 1;
+    const solution = Array(n).fill('');
+    [...t].forEach((ch, k) => { solution[from + k] = ch; });
+    return { from, to, ltr, solution };
+  };
+  let c = 0;
+  let part = Number(D[0]);
+  while (part < divisor) {
+    c++;
+    part = part * 10 + Number(D[c]);
+  }
+  const first = c;
+  const steps = [];
+  for (;;) {
+    const prod = Math.floor(part / divisor) * divisor;
+    const last = c === n - 1;
+    const left = last ? part - prod : (part - prod) * 10 + Number(D[c + 1]);
+    steps.push({ c, prod: place(prod, c), rem: place(left, last ? c : c + 1, true) });
+    if (last) {
+      break;
+    }
+    c++;
+    part = left;
+  }
+  const inputs = { ans: { graded: true, ltr: true, from: first, to: n - 1, solution: toDigits(dividend / divisor, n) } };
+  const next = {};
+  steps.forEach((st, j) => {
+    inputs[`p${j}`] = st.prod;
+    inputs[`r${j}`] = st.rem;
+    next[`ans:${st.c}`] = { id: `p${j}`, i: st.prod.to };
+    next[`p${j}:${st.prod.from}`] = { id: `r${j}`, i: st.rem.from };
+    if (j + 1 < steps.length) {
+      next[`r${j}:${st.rem.to}`] = { id: 'ans', i: steps[j + 1].c };
+    }
+  });
+  return { kind: 'longdiv', cols: n, divisor, dividend: D, inputs, steps, next, start: 'ans' };
+}
+
+function longDivHTML(sh) {
+  const n = sh.cols;
+  const gc = i => i + 2;
+  const cell = (row, i) => `grid-row:${row};grid-column:${gc(i)}`;
+  const out = [];
+  for (let i = sh.inputs.ans.from; i < n; i++) {
+    out.push(boxHTML('ans', i, false, cell(1, i)));
+  }
+  out.push(`<div class="divisor" style="grid-row:2;grid-column:1">${sh.divisor}</div>`);
+  out.push(`<div class="bracket" style="grid-row:2;grid-column:2 / ${n + 2}"></div>`);
+  for (let i = 0; i < n; i++) {
+    out.push(`<div class="dd2" style="${cell(2, i)}">${sh.dividend[i]}</div>`);
+  }
+  sh.steps.forEach((st, j) => {
+    const row = 3 + 3 * j;
+    const p = st.prod;
+    const r = st.rem;
+    out.push(`<div class="sign" style="grid-row:${row};grid-column:${gc(p.from) - 1}">−</div>`);
+    for (let i = p.from; i <= p.to; i++) {
+      out.push(boxHTML(`p${j}`, i, false, cell(row, i)));
+    }
+    out.push(`<div class="drule" style="grid-row:${row + 1};grid-column:${gc(p.from)} / ${gc(p.to) + 1}"></div>`);
+    for (let i = r.from; i <= r.to; i++) {
+      out.push(boxHTML(`r${j}`, i, false, cell(row + 2, i)));
+    }
+  });
+  return `<div id="longgrid" class="ldiv2" style="--n:${n}">${out.join('')}</div><p class="hint">Tap any box to write in it</p>`;
+}
+
 const withSheet = q => ({ ...q, sheet: columnSheet(q.sym, q.a, q.b) });
+
+/** The columns a row of boxes covers (rows of a long division's working are shorter than the sheet). */
+function span(sh, id) {
+  const inp = sh.inputs[id];
+  return [inp.from ?? 0, inp.to ?? sh.cols - 1];
+}
+
+/** Where typing starts in a row: its right end, or its left end for a division's answer. */
+function firstCell(sh, id) {
+  const [lo, hi] = span(sh, id);
+  return sh.inputs[id].ltr ? lo : hi;
+}
 
 function freshAnswer(s) {
   const q = s.questions[s.index];
@@ -453,7 +564,7 @@ function freshAnswer(s) {
     for (const id of Object.keys(sh.inputs)) {
       s.cells[id] = Array(sh.cols).fill('');
     }
-    s.cur = { id: sh.start, i: sh.inputs[sh.start].ltr ? 0 : sh.cols - 1 };
+    s.cur = { id: sh.start, i: firstCell(sh, sh.start) };
     s.home = { ...s.cur };
     s.borrow = Array(sh.cols).fill(false);
   }
@@ -465,7 +576,7 @@ function clearDigits(s) {
   if (s.cells) {
     const sh = s.questions[s.index].sheet;
     s.cells.ans.fill('');
-    s.cur = { id: 'ans', i: sh.inputs.ans.ltr ? 0 : sh.cols - 1 };
+    s.cur = { id: 'ans', i: firstCell(sh, 'ans') };
     s.home = { ...s.cur };
   }
 }
@@ -483,12 +594,18 @@ function rowValue(cells) {
 function typeInSheet(s, d) {
   const sh = s.questions[s.index].sheet;
   const inp = sh.inputs[s.cur.id];
+  const jump = sh.next && sh.next[`${s.cur.id}:${s.cur.i}`];
   s.cells[s.cur.id][s.cur.i] = d;
   if (inp.small) {
     s.cur = { ...s.home };
     return;
   }
-  s.cur.i = inp.ltr ? Math.min(sh.cols - 1, s.cur.i + 1) : Math.max(0, s.cur.i - 1);
+  const [lo, hi] = span(sh, s.cur.id);
+  if (jump) {
+    s.cur = { ...jump };
+  } else {
+    s.cur.i = inp.ltr ? Math.min(hi, s.cur.i + 1) : Math.max(lo, s.cur.i - 1);
+  }
   s.home = { ...s.cur };
 }
 
@@ -501,7 +618,8 @@ function deleteInSheet(s) {
   } else if (!inp.small) {
     // Undo the last digit: step back and clear it.
     const back = inp.ltr ? s.cur.i - 1 : s.cur.i + 1;
-    if (back >= 0 && back < sh.cols) {
+    const [lo, hi] = span(sh, s.cur.id);
+    if (back >= lo && back <= hi) {
       s.cur.i = back;
       row[back] = '';
     }
@@ -540,12 +658,15 @@ function toggleBorrow(s, i) {
   }
 }
 
-const boxHTML = (id, i, small) =>
-  `<button class="${small ? 'sbox' : 'box'}" data-act="cell" data-v="${id}:${i}" id="${id}${i}"></button>`;
+const boxHTML = (id, i, small, style = '') =>
+  `<button class="${small ? 'sbox' : 'box'}" style="${style}" data-act="cell" data-v="${id}:${i}" id="${id}${i}"></button>`;
 
 function sheetHTML(q) {
   const sh = q.sheet;
   const cols = [...Array(sh.cols).keys()];
+  if (sh.kind === 'longdiv') {
+    return longDivHTML(sh);
+  }
   if (sh.kind === 'division') {
     return `
       <div id="longgrid" class="ldiv">
