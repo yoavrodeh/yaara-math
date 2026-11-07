@@ -1,7 +1,7 @@
 # Yaara's Math
 
 A small math practice app for a tablet: addition, subtraction, multiplication and division, four levels each,
-ten questions per round, autumn colours, and a play-time countdown.
+ten questions per round, a pastel strawberry theme, and a play-time countdown.
 
 It's a plain web app (no build step), installed on the tablet from Chrome with **Add to Home screen**, and it works
 offline.
