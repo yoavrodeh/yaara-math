@@ -249,7 +249,9 @@ h2 {
 }
 .long .sign { color: var(--berry); }
 .long .rule { grid-column: 1 / -1; justify-self: stretch; height: 6px; background: var(--ink); border-radius: 3px; margin: 6px 0 10px; }
-.long .box {
+.long { row-gap: 4px; }
+.long.tall { font-size: clamp(36px, 5.5vw, 48px); }
+.box {
   font-size: 1em;
   width: 1.05em;
   height: 1.3em;
@@ -258,12 +260,49 @@ h2 {
   background: #FFFAFB;
   line-height: 1.2;
 }
-.long .box.cur { border: 4px solid var(--berry); background: #fff; }
-.long .box.right, .long .box.reveal { color: var(--right); border: 3px solid var(--right); }
+.sbox {
+  font-size: .42em;
+  width: 1.6em;
+  height: 1.6em;
+  border: 2px dashed var(--pink);
+  border-radius: 8px;
+  background: #FFFAFB;
+  line-height: 1.4;
+  color: var(--berry-dark);
+}
+.box.cur { border: 4px solid var(--berry); background: #fff; }
+.sbox.cur { border: 3px solid var(--berry); background: #fff; }
+.box.right, .box.reveal, .sbox.reveal { color: var(--right); border: 3px solid var(--right); }
+.sbox.reveal { border-width: 2px; }
 .hint { font-size: 17px; color: var(--ink-soft); margin: 6px 0 0; }
+
+/* long division: answer boxes on top, the number divided under a bracket */
+.ldiv {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  align-items: end;
+  font-size: clamp(44px, 7vw, 64px);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.ldiv .qrow { display: flex; padding: 0 0 8px 14px; }
+.ldiv .qrow .box { margin: 0 .05em; }
+.ldiv .divisor { padding: 0 .15em .05em 0; color: var(--berry-dark); }
+.ldiv .drow {
+  display: flex;
+  border-left: 6px solid var(--ink);
+  border-top: 6px solid var(--ink);
+  border-top-left-radius: 22px;
+  padding: .45em 0 0 8px;
+}
+.ldiv .dd { position: relative; width: 1.15em; text-align: center; }
+.ldiv .dd .sbox { position: absolute; top: -.62em; left: -.32em; }
 
 .mini { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.1; font-size: 24px; }
 .mini-b { border-bottom: 2px solid var(--ink-soft); padding-bottom: 2px; }
+.mini-div { display: inline-flex; align-items: flex-end; font-size: 24px; gap: 2px; }
+.mini-dd { border-left: 2px solid var(--ink-soft); border-top: 2px solid var(--ink-soft); border-top-left-radius: 6px; padding: 0 2px 0 4px; }
 
 /* ---------- summary / time up ---------- */
 .big-score { font-size: clamp(56px, 10vw, 96px); font-weight: 600; color: var(--berry); line-height: 1.1; }

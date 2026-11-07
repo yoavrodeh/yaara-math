@@ -1,7 +1,8 @@
 # Yaara's Math
 
-A small math practice app for a tablet: addition, subtraction, multiplication and division, four levels each,
-ten questions per round, a pastel strawberry theme, and a play-time countdown.
+A small math practice app for a tablet: addition, subtraction, multiplication and division, four levels each plus a
+"long" level written in columns (long division under a bracket), ten questions per round, a pastel strawberry
+theme, and a play-time countdown.
 
 It's a plain web app (no build step), installed on the tablet from Chrome with **Add to Home screen**, and it works
 offline.
@@ -20,6 +21,8 @@ offline.
 
 - **Levels**: edit the `levels` list of an operation in `OPS` in `app.js`. Each level has a `sample` (shown on the
   level screen) and a `make` function that returns one question.
+- **Long levels**: a question with a `sheet` is drawn as a worksheet (`columnSheet`, `divisionSheet`). Only the
+  `ans` row is scored; carries, remainders and partial products are her working.
 - **Questions per round, time choices**: constants at the top of `app.js`.
 - Bump `VERSION` in `app.js` so you can see on the start screen that the tablet has the new version.
 

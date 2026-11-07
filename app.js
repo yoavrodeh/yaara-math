@@ -1,6 +1,6 @@
 'use strict';
 
-const VERSION = 'v3';
+const VERSION = 'v4';
 const QUESTIONS_PER_SESSION = 10;
 const TIME_CHOICES = [5, 10, 15, 20];
 const MAX_ANSWER_DIGITS = 6;
@@ -31,19 +31,71 @@ function needsBorrow(a, b) {
   return false;
 }
 
-/** Long subtraction, written in columns: 2-digit numbers first, then 3, then 4. Always needs a borrow. */
-function longSub(index) {
-  const topDigits = index < 3 ? 2 : index < 7 ? 3 : 4;
+/** True if adding a and b carries in at least one column. */
+function needsCarry(a, b) {
+  for (; a > 0 || b > 0; a = Math.floor(a / 10), b = Math.floor(b / 10)) {
+    if (a % 10 + b % 10 >= 10) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** True if multiplying a by the digit m carries somewhere. */
+const mulCarries = (a, m) => [...String(a)].some(d => Number(d) * m >= 10);
+
+// The long levels grow within a round: questions 1-3 use 2-digit numbers, 4-7 use 3, 8-10 use 4.
+const longSize = index => (index < 3 ? 2 : index < 7 ? 3 : 4);
+
+function longAdd(index) {
+  const d = longSize(index);
   for (;;) {
-    const a = nDigits(topDigits);
-    const b = nDigits(rand(2, topDigits));
-    if (b < a && needsBorrow(a, b)) {
-      return { ...sub(a, b), long: true };
+    const a = nDigits(d);
+    const b = nDigits(rand(2, d));
+    if (needsCarry(a, b)) {
+      return withSheet(add(...shuffle2(a, b)));
     }
   }
 }
 
-const stackedSample = (a, b) => `<span class="mini"><span>${a}</span><span class="mini-b">− ${b}</span></span>`;
+function longSub(index) {
+  const d = longSize(index);
+  for (;;) {
+    const a = nDigits(d);
+    const b = nDigits(rand(2, d));
+    if (b < a && needsBorrow(a, b)) {
+      return withSheet(sub(a, b));
+    }
+  }
+}
+
+/** 2-digit × 1-digit, then 3-digit × 1-digit, then 2-digit × 2-digit with two partial-product rows. */
+function longMul(index) {
+  if (index >= 7) {
+    const b = nDigits(2);
+    return b % 10 === 0 ? longMul(index) : withSheet(mul(nDigits(2), b));
+  }
+  for (;;) {
+    const a = nDigits(index < 3 ? 2 : 3);
+    const m = rand(3, 9);
+    if (mulCarries(a, m)) {
+      return withSheet(mul(a, m));
+    }
+  }
+}
+
+/** One-digit divisor, whole answer of at least 2 digits; the number divided grows from 2 to 4 digits. */
+function longDiv(index) {
+  const d = longSize(index);
+  const divisor = rand(2, 9);
+  const lo = Math.max(10, Math.ceil(10 ** (d - 1) / divisor));
+  const hi = Math.floor((10 ** d - 1) / divisor);
+  const q = div(divisor, rand(lo, hi));
+  return { ...q, sheet: divisionSheet(q.a, divisor) };
+}
+
+const stackedSample = (a, sym, b) => `<span class="mini"><span>${a}</span><span class="mini-b">${sym} ${b}</span></span>`;
+const divisionSample = (a, b) => `<span class="mini-div"><span>${b}</span><span class="mini-dd">${a}</span></span>`;
 
 const OPS = {
   add: {
@@ -53,6 +105,7 @@ const OPS = {
       { sample: '37 + 48', make: () => add(nDigits(2), nDigits(2)) },
       { sample: '264 + 519', make: () => add(nDigits(3), nDigits(3)) },
       { sample: '3406 + 72', make: () => { const [x, y] = pick(MIXED_DIGITS); return add(...shuffle2(nDigits(x), nDigits(y))); } },
+      { title: 'Long addition', sample: stackedSample(47, '+', 38), make: longAdd },
     ],
   },
   sub: {
@@ -62,7 +115,7 @@ const OPS = {
       { sample: '74 − 38', make: () => sub(nDigits(2), nDigits(2)) },
       { sample: '612 − 347', make: () => sub(nDigits(3), nDigits(3)) },
       { sample: '3005 − 48', make: () => { const [x, y] = pick(MIXED_DIGITS); return sub(nDigits(x), nDigits(y)); } },
-      { title: 'Long subtraction', sample: stackedSample(52, 38), make: longSub },
+      { title: 'Long subtraction', sample: stackedSample(52, '−', 38), make: longSub },
     ],
   },
   mul: {
@@ -72,6 +125,7 @@ const OPS = {
       { sample: '6 × 34', make: () => mul(...shuffle2(rand(2, 9), nDigits(2))) },
       { sample: '23 × 31', make: () => mul(rand(10, 39), rand(10, 39)) },
       { sample: '47 × 86', make: () => mul(nDigits(2), nDigits(2)) },
+      { title: 'Long multiplication', sample: stackedSample(34, '×', 6), make: longMul },
     ],
   },
   div: {
@@ -81,6 +135,7 @@ const OPS = {
       { sample: '84 ÷ 7', make: () => div(rand(2, 9), nDigits(2)) },
       { sample: '713 ÷ 23', make: () => div(rand(10, 39), rand(10, 39)) },
       { sample: '2752 ÷ 43', make: () => div(nDigits(2), nDigits(2)) },
+      { title: 'Long division', sample: divisionSample(96, 4), make: longDiv },
     ],
   },
 };
@@ -215,7 +270,7 @@ const screens = {
         <div class="bar"><div id="qbar"></div></div>
         <div class="qbody">
           <div class="qleft">
-            ${q.long ? longProblemHTML(q) : `<div class="problem">${q.a} ${q.sym} ${q.b} = <span id="answer" class="answer"></span></div>`}
+            ${q.sheet ? sheetHTML(q) : `<div class="problem">${q.a} ${q.sym} ${q.b} = <span id="answer" class="answer"></span></div>`}
             <div id="feedback" class="feedback"></div>
           </div>
           <div class="pad">
@@ -317,43 +372,153 @@ function startSession(op, level) {
   go('question');
 }
 
-// ---------- long (column) questions ----------
-// The answer is a row of boxes, one per column of the top number, filled right to left.
-// `borrow[i]` means column i borrowed 10 from column i - 1.
+// ---------- worksheet ("long") questions ----------
+// A worksheet question has `sheet`. She fills rows of boxes (`sheet.inputs`, keyed by row id), one digit per
+// column. Only the `ans` row is scored; carry, remainder and partial-product rows are her working.
+// Big rows fill right to left (left to right for a division's answer). After a digit in a small box
+// (a carry or a remainder), the cursor goes back to where she was in the big rows.
+
+const toDigits = (value, n) => String(value).padStart(n, ' ').split('').map(c => c.trim());
+
+/** Addition, subtraction or multiplication written in columns. */
+function columnSheet(sym, a, b) {
+  const A = String(a);
+  const B = String(b);
+  const answer = sym === '+' ? a + b : sym === '−' ? a - b : a * b;
+  const twoRow = sym === '×' && B.length > 1;
+  let cols = A.length;
+  if (sym === '+') {
+    cols = Math.max(A.length, B.length) + 1;
+  } else if (sym === '×') {
+    cols = A.length + B.length;
+  }
+  const rows = [];
+  const inputs = {};
+  if (sym === '−') {
+    rows.push({ type: 'marks' });
+  } else {
+    rows.push({ type: 'boxes', id: 'carry' });
+    inputs.carry = { small: true };
+  }
+  rows.push({ type: 'num', text: A, borrow: sym === '−' });
+  rows.push({ type: 'num', text: B, sign: sym });
+  rows.push({ type: 'rule' });
+  if (twoRow) {
+    const ones = Number(B[B.length - 1]);
+    const tens = Number(B[B.length - 2]);
+    rows.push({ type: 'boxes', id: 'p1' }, { type: 'boxes', id: 'p2', sign: '+' }, { type: 'rule' });
+    inputs.p1 = { solution: toDigits(a * ones, cols) };
+    inputs.p2 = { solution: toDigits(a * tens * 10, cols) };
+  }
+  rows.push({ type: 'boxes', id: 'ans' });
+  inputs.ans = { graded: true, solution: toDigits(answer, cols) };
+  let hint = 'Tap a small box to write what you carry';
+  if (sym === '−') {
+    hint = 'Tap a top digit to borrow 10 for it';
+  } else if (twoRow) {
+    hint = 'Tap any box to write in it';
+  }
+  return { kind: 'column', cols, rows, inputs, start: twoRow ? 'p1' : 'ans', hint };
+}
+
+/** Long division by a one-digit divisor: answer on top, remainders written small beside each digit. */
+function divisionSheet(dividend, divisor) {
+  const D = String(dividend);
+  const cols = D.length;
+  const rems = [];
+  let r = 0;
+  for (let i = 0; i < cols; i++) {
+    rems.push(i > 0 && r > 0 ? String(r) : '');
+    r = (r * 10 + Number(D[i])) % divisor;
+  }
+  return {
+    kind: 'division', cols, divisor, dividend: D, start: 'ans',
+    inputs: {
+      ans: { graded: true, ltr: true, solution: toDigits(dividend / divisor, cols) },
+      rem: { small: true, ltr: true, solution: rems },
+    },
+  };
+}
+
+const withSheet = q => ({ ...q, sheet: columnSheet(q.sym, q.a, q.b) });
 
 function freshAnswer(s) {
   const q = s.questions[s.index];
   s.input = '';
   s.cells = null;
   s.borrow = null;
-  if (q.long) {
-    const n = String(q.a).length;
-    s.cells = Array(n).fill('');
-    s.cursor = n - 1;
-    s.borrow = Array(n).fill(false);
+  const sh = q.sheet;
+  if (sh) {
+    s.cells = {};
+    for (const id of Object.keys(sh.inputs)) {
+      s.cells[id] = Array(sh.cols).fill('');
+    }
+    s.cur = { id: sh.start, i: sh.inputs[sh.start].ltr ? 0 : sh.cols - 1 };
+    s.home = { ...s.cur };
+    s.borrow = Array(sh.cols).fill(false);
   }
 }
 
-/** Clears the typed answer for a second try; borrow marks stay. */
+/** Clears the answer row for a second try; her working stays. */
 function clearDigits(s) {
   s.input = '';
   if (s.cells) {
-    s.cells.fill('');
-    s.cursor = s.cells.length - 1;
+    const sh = s.questions[s.index].sheet;
+    s.cells.ans.fill('');
+    s.cur = { id: 'ans', i: sh.inputs.ans.ltr ? 0 : sh.cols - 1 };
+    s.home = { ...s.cur };
   }
 }
 
-/** The number in the boxes, or null if they are empty or have a gap. */
-function longEntry(s) {
-  const filled = s.cells.map(c => c !== '');
+/** The number in a row of boxes, or null if it is empty or has a gap. */
+function rowValue(cells) {
+  const filled = cells.map(c => c !== '');
   const first = filled.indexOf(true);
   if (first === -1 || filled.slice(first).includes(false)) {
     return null;
   }
-  return Number(s.cells.slice(first).join(''));
+  return Number(cells.slice(first).join(''));
 }
 
-/** What the top digit of column i is worth after borrowing. */
+function typeInSheet(s, d) {
+  const sh = s.questions[s.index].sheet;
+  const inp = sh.inputs[s.cur.id];
+  s.cells[s.cur.id][s.cur.i] = d;
+  if (inp.small) {
+    s.cur = { ...s.home };
+    return;
+  }
+  s.cur.i = inp.ltr ? Math.min(sh.cols - 1, s.cur.i + 1) : Math.max(0, s.cur.i - 1);
+  s.home = { ...s.cur };
+}
+
+function deleteInSheet(s) {
+  const sh = s.questions[s.index].sheet;
+  const inp = sh.inputs[s.cur.id];
+  const row = s.cells[s.cur.id];
+  if (row[s.cur.i] !== '') {
+    row[s.cur.i] = '';
+  } else if (!inp.small) {
+    // Undo the last digit: step back and clear it.
+    const back = inp.ltr ? s.cur.i - 1 : s.cur.i + 1;
+    if (back >= 0 && back < sh.cols) {
+      s.cur.i = back;
+      row[back] = '';
+    }
+  }
+  if (!inp.small) {
+    s.home = { ...s.cur };
+  }
+}
+
+function selectCell(s, id, i) {
+  s.cur = { id, i };
+  if (!s.questions[s.index].sheet.inputs[id].small) {
+    s.home = { ...s.cur };
+  }
+}
+
+/** What the top digit of column i is worth after borrowing (subtraction). */
 function topValue(s, i) {
   const d = Number(String(s.questions[s.index].a)[i]);
   const lent = i + 1 < s.borrow.length && s.borrow[i + 1];
@@ -375,40 +540,73 @@ function toggleBorrow(s, i) {
   }
 }
 
-function longProblemHTML(q) {
-  const top = String(q.a);
-  const n = top.length;
-  const bottom = String(q.b).padStart(n, ' ');
-  const cols = [...Array(n).keys()];
-  return `
-    <div id="longgrid" class="long" style="--n:${n + 1}">
-      <div></div>${cols.map(i => `<div class="carry" id="carry${i}"></div>`).join('')}
-      <div></div>${cols.map(i => `<button class="topd" data-act="borrow" data-v="${i}" id="top${i}">${top[i]}</button>`).join('')}
-      <div class="sign">−</div>${cols.map(i => `<div>${bottom[i].trim()}</div>`).join('')}
-      <div class="rule"></div>
-      <div></div>${cols.map(i => `<button class="box" data-act="cell" data-v="${i}" id="cell${i}"></button>`).join('')}
-    </div>
-    <p class="hint">Tap a top digit to borrow 10 for it</p>`;
+const boxHTML = (id, i, small) =>
+  `<button class="${small ? 'sbox' : 'box'}" data-act="cell" data-v="${id}:${i}" id="${id}${i}"></button>`;
+
+function sheetHTML(q) {
+  const sh = q.sheet;
+  const cols = [...Array(sh.cols).keys()];
+  if (sh.kind === 'division') {
+    return `
+      <div id="longgrid" class="ldiv">
+        <div></div>
+        <div class="qrow">${cols.map(i => boxHTML('ans', i, false)).join('')}</div>
+        <div class="divisor">${sh.divisor}</div>
+        <div class="drow">${cols.map(i => `<div class="dd">${i > 0 ? boxHTML('rem', i, true) : ''}${sh.dividend[i]}</div>`).join('')}</div>
+      </div>
+      <p class="hint">Tap a small box to write what's left over</p>`;
+  }
+  const html = sh.rows.map(row => {
+    if (row.type === 'rule') {
+      return '<div class="rule"></div>';
+    }
+    if (row.type === 'marks') {
+      return `<div></div>${cols.map(i => `<div class="carry" id="mark${i}"></div>`).join('')}`;
+    }
+    const sign = `<div class="sign">${row.sign || ''}</div>`;
+    if (row.type === 'boxes') {
+      return sign + cols.map(i => boxHTML(row.id, i, sh.inputs[row.id].small)).join('');
+    }
+    const t = row.text.padStart(sh.cols, ' ');
+    return sign + cols.map(i => {
+      if (t[i] === ' ') {
+        return '<div></div>';
+      }
+      return row.borrow ? `<button class="topd" data-act="borrow" data-v="${i}" id="top${i}">${t[i]}</button>` : `<div>${t[i]}</div>`;
+    }).join('');
+  }).join('');
+  const tall = sh.rows.length > 6 ? ' tall' : '';
+  return `<div id="longgrid" class="long${tall}" style="--n:${sh.cols + 1}">${html}</div><p class="hint">${sh.hint}</p>`;
 }
 
-function updateLongUI(s, q) {
-  const n = s.cells.length;
-  const shown = s.reveal ? String(q.answer).padStart(n, ' ').split('').map(c => c.trim()) : s.cells;
-  for (let i = 0; i < n; i++) {
-    const cell = document.getElementById(`cell${i}`);
-    cell.textContent = shown[i];
-    let cls = 'box';
-    if (s.reveal) {
-      cls += ' reveal';
-    } else if (s.resolved) {
-      cls += ' right';
-    } else if (i === s.cursor) {
-      cls += ' cur';
+function updateSheetUI(s, q) {
+  const sh = q.sheet;
+  for (const [id, inp] of Object.entries(sh.inputs)) {
+    const shown = s.reveal && inp.solution ? inp.solution : s.cells[id];
+    for (let i = 0; i < sh.cols; i++) {
+      const el = document.getElementById(`${id}${i}`);
+      if (!el) {
+        continue;
+      }
+      el.textContent = shown[i];
+      let cls = inp.small ? 'sbox' : 'box';
+      if (s.reveal && inp.solution) {
+        cls += ' reveal';
+      } else if (s.resolved && inp.graded) {
+        cls += ' right';
+      } else if (!s.resolved && s.cur.id === id && s.cur.i === i) {
+        cls += ' cur';
+      }
+      el.className = cls;
     }
-    cell.className = cls;
-    const changed = s.borrow[i] || (i + 1 < n && s.borrow[i + 1]);
-    document.getElementById(`top${i}`).classList.toggle('crossed', changed);
-    document.getElementById(`carry${i}`).textContent = changed ? topValue(s, i) : '';
+  }
+  for (let i = 0; i < sh.cols; i++) {
+    const mark = document.getElementById(`mark${i}`);
+    if (mark) {
+      const changed = s.borrow[i] || (i + 1 < sh.cols && s.borrow[i + 1]);
+      document.getElementById(`top${i}`).classList.toggle('crossed', changed);
+      mark.textContent = changed ? topValue(s, i) : '';
+    }
   }
 }
 
@@ -419,8 +617,8 @@ function updateQuestionUI(feedback) {
   document.getElementById('qbar').style.width = `${(s.results.length / QUESTIONS_PER_SESSION) * 100}%`;
 
   const q = s.questions[s.index];
-  if (q.long) {
-    updateLongUI(s, q);
+  if (q.sheet) {
+    updateSheetUI(s, q);
   } else {
     const ans = document.getElementById('answer');
     if (s.reveal) {
@@ -464,7 +662,7 @@ function check() {
     return;
   }
   const q = s.questions[s.index];
-  const entry = q.long ? longEntry(s) : (s.input ? Number(s.input) : null);
+  const entry = q.sheet ? rowValue(s.cells.ans) : (s.input ? Number(s.input) : null);
   if (entry === null) {
     shake();
     return;
@@ -607,9 +805,7 @@ function press(act, v) {
         break;
       }
       if (s.cells) {
-        // Fill the current box, then move one box to the left.
-        s.cells[s.cursor] = v;
-        s.cursor = Math.max(0, s.cursor - 1);
+        typeInSheet(s, v);
       } else if (s.input.length < MAX_ANSWER_DIGITS) {
         s.input = s.input === '0' ? v : s.input + v;
       }
@@ -619,20 +815,17 @@ function press(act, v) {
       if (!s || s.resolved) {
         break;
       }
-      if (!s.cells) {
+      if (s.cells) {
+        deleteInSheet(s);
+      } else {
         s.input = s.input.slice(0, -1);
-      } else if (s.cells[s.cursor] !== '') {
-        s.cells[s.cursor] = '';
-      } else if (s.cursor < s.cells.length - 1) {
-        // Undo the last digit: step back right and clear it.
-        s.cursor += 1;
-        s.cells[s.cursor] = '';
       }
       updateQuestionUI();
       break;
     case 'cell':
       if (s && s.cells && !s.resolved) {
-        s.cursor = Number(v);
+        const [id, i] = v.split(':');
+        selectCell(s, id, Number(i));
         updateQuestionUI();
       }
       break;
